@@ -1,18 +1,15 @@
 #!/bin/bash
 #
-# Script d'installation automatique - Surveillance de dossier avec Telegram
-# Détecte les fichiers ET les dossiers
+# Installation - Surveillance multi-dossiers avec Telegram
 #
 # Auteur: Xavier - XGR Solutions
-# Version: 2.0 FINALE
-# Date: 2025-11-15
+# Version: 3.0 - Multi-dossiers
 #
 
 set -e
 
 echo "======================================================================"
-echo "    INSTALLATION - SURVEILLANCE DE DOSSIER AVEC TELEGRAM"
-echo "                   Fichiers & Dossiers"
+echo "  INSTALLATION - SURVEILLANCE MULTI-DOSSIERS AVEC TELEGRAM"
 echo "======================================================================"
 echo
 
@@ -30,35 +27,80 @@ SERVICE_NAME="folder-monitor"
 # COLLECTE DES INFORMATIONS
 # ============================================================================
 
-echo "📝 Configuration"
+echo "📝 Configuration Telegram"
 echo
 read -p "Token du bot Telegram: " BOT_TOKEN
 read -p "Chat ID Telegram: " CHAT_ID
-read -p "Dossier à surveiller: " WATCHED_DIR
+
+echo
+echo "📂 Configuration des dossiers à surveiller"
+echo
+echo "Entrez les chemins des dossiers à surveiller (un par ligne)."
+echo "Appuyez sur ENTRÉE avec une ligne vide pour terminer."
+echo
+
+FOLDERS=()
+FOLDER_NUM=1
+
+while true; do
+    read -p "Dossier $FOLDER_NUM: " FOLDER_PATH
+    
+    # Si ligne vide et au moins un dossier, on arrête
+    if [[ -z "$FOLDER_PATH" ]]; then
+        if [[ ${#FOLDERS[@]} -gt 0 ]]; then
+            break
+        else
+            echo "⚠️  Vous devez entrer au moins un dossier"
+            continue
+        fi
+    fi
+    
+    # Vérifier si le dossier existe
+    if [[ ! -d "$FOLDER_PATH" ]]; then
+        echo "⚠️  Le dossier $FOLDER_PATH n'existe pas."
+        read -p "Voulez-vous le créer ? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            mkdir -p "$FOLDER_PATH"
+            echo "✓ Dossier créé"
+        else
+            continue
+        fi
+    fi
+    
+    FOLDERS+=("$FOLDER_PATH")
+    echo "✓ Ajouté: $FOLDER_PATH"
+    ((FOLDER_NUM++))
+done
 
 # Validation
-if [[ -z "$BOT_TOKEN" ]] || [[ -z "$CHAT_ID" ]] || [[ -z "$WATCHED_DIR" ]]; then
-    echo "❌ Erreur: Tous les champs sont obligatoires"
+if [[ -z "$BOT_TOKEN" ]] || [[ -z "$CHAT_ID" ]]; then
+    echo "❌ Erreur: Token et Chat ID sont obligatoires"
     exit 1
 fi
 
-if [[ ! -d "$WATCHED_DIR" ]]; then
-    echo "⚠️  Le dossier $WATCHED_DIR n'existe pas."
-    read -p "Voulez-vous le créer ? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        mkdir -p "$WATCHED_DIR"
-        echo "✓ Dossier créé"
-    else
-        exit 1
-    fi
+if [[ ${#FOLDERS[@]} -eq 0 ]]; then
+    echo "❌ Erreur: Aucun dossier à surveiller"
+    exit 1
 fi
+
+# Créer la liste des dossiers séparés par des virgules
+WATCHED_FOLDERS=$(IFS=,; echo "${FOLDERS[*]}")
+
+echo
+echo "📊 Récapitulatif:"
+echo "   • Bot Token: ${BOT_TOKEN:0:10}..."
+echo "   • Chat ID: $CHAT_ID"
+echo "   • Nombre de dossiers: ${#FOLDERS[@]}"
+for i in "${!FOLDERS[@]}"; do
+    echo "     $((i+1)). ${FOLDERS[$i]}"
+done
+echo
 
 # ============================================================================
 # INSTALLATION DES DÉPENDANCES
 # ============================================================================
 
-echo
 echo "📦 Installation des dépendances Python..."
 apt-get update -qq
 apt-get install -y python3 python3-pip python3-venv
@@ -79,7 +121,6 @@ echo "🐍 Configuration de l'environnement virtuel..."
 python3 -m venv venv
 source venv/bin/activate
 
-# Installation des packages Python
 echo "📚 Installation des packages Python..."
 pip install --quiet --upgrade pip
 pip install --quiet watchdog requests
@@ -88,14 +129,9 @@ pip install --quiet watchdog requests
 # INSTALLATION DU SCRIPT
 # ============================================================================
 
-echo "📄 Installation du script de surveillance..."
+echo "📄 Installation du script de surveillance multi-dossiers..."
 cat > "$INSTALL_DIR/monitor.py" << 'EOFSCRIPT'
 #!/usr/bin/env python3
-"""
-Script de surveillance de dossier avec notifications Telegram
-VERSION FINALE - Détecte les fichiers ET les dossiers
-"""
-
 import os
 import time
 import requests
@@ -105,32 +141,25 @@ from watchdog.events import FileSystemEventHandler
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-WATCHED_FOLDER = os.getenv('WATCHED_FOLDER')
+WATCHED_FOLDERS = os.getenv('WATCHED_FOLDERS', '')
+WATCHED_FOLDERS_LIST = [f.strip() for f in WATCHED_FOLDERS.split(',') if f.strip()]
 
 class FolderMonitor(FileSystemEventHandler):
-    def __init__(self, bot_token, chat_id):
+    def __init__(self, bot_token, chat_id, folder_name=None):
         self.bot_token = bot_token
         self.chat_id = chat_id
+        self.folder_name = folder_name
         self.telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         self.last_notification_time = {}
     
     def send_telegram_notification(self, message):
         try:
-            payload = {
-                'chat_id': self.chat_id,
-                'text': message,
-                'parse_mode': 'HTML'
-            }
+            payload = {'chat_id': self.chat_id, 'text': message, 'parse_mode': 'HTML'}
             response = requests.post(self.telegram_url, data=payload, timeout=10)
             if response.status_code == 200:
                 print(f"✓ Notification envoyée")
-                return True
-            else:
-                print(f"✗ Erreur Telegram: {response.status_code}")
-                return False
         except Exception as e:
             print(f"✗ Erreur: {e}")
-            return False
     
     def should_notify(self, item_path):
         current_time = time.time()
@@ -141,78 +170,52 @@ class FolderMonitor(FileSystemEventHandler):
         return False
     
     def on_created(self, event):
-        """Détecte les fichiers ET les dossiers"""
         item_path = event.src_path
-        
-        # Anti-doublon
         if not self.should_notify(item_path):
             return
-        
-        # Attendre que l'élément soit complètement créé
         time.sleep(0.5)
-        
-        # Vérifier l'existence
         if not os.path.exists(item_path):
             return
         
         item_name = os.path.basename(item_path)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        folder_label = self.folder_name if self.folder_name else os.path.dirname(item_path)
         
         if event.is_directory:
-            # ===== NOUVEAU DOSSIER =====
-            message = (
-                f"📂 <b>Nouveau dossier créé</b>\n\n"
-                f"📁 Nom: <code>{item_name}</code>\n"
-                f"📍 Chemin: <code>{os.path.dirname(item_path)}</code>\n"
-                f"🕒 Date: {timestamp}"
-            )
-            print(f"[{timestamp}] 📂 DOSSIER: {item_name}")
-            
+            message = f"📂 <b>Nouveau dossier</b>\n\n📁 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n🕒 {timestamp}"
+            print(f"[{timestamp}] 📂 DOSSIER: {item_name} (dans {folder_label})")
         else:
-            # ===== NOUVEAU FICHIER =====
             file_size = os.path.getsize(item_path)
-            
-            # Formatage de la taille
             size_bytes = file_size
             for unit in ['o', 'Ko', 'Mo', 'Go']:
                 if size_bytes < 1024.0:
                     size_str = f"{size_bytes:.2f} {unit}"
                     break
                 size_bytes /= 1024.0
-            
-            message = (
-                f"📁 <b>Nouveau fichier détecté</b>\n\n"
-                f"📄 Nom: <code>{item_name}</code>\n"
-                f"💾 Taille: {size_str}\n"
-                f"🕒 Date: {timestamp}"
-            )
-            print(f"[{timestamp}] 📄 FICHIER: {item_name}")
+            message = f"📁 <b>Nouveau fichier</b>\n\n📄 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n💾 {size_str}\n🕒 {timestamp}"
+            print(f"[{timestamp}] 📄 FICHIER: {item_name} (dans {folder_label})")
         
-        # Envoi de la notification
         self.send_telegram_notification(message)
 
 def main():
-    print(f"📁 Surveillance: {WATCHED_FOLDER}")
-    print(f"📂 Mode: FICHIERS ET DOSSIERS")
-    print(f"=" * 60)
+    print(f"📂 Surveillance de {len(WATCHED_FOLDERS_LIST)} dossier(s)")
     
-    event_handler = FolderMonitor(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
     observer = Observer()
-    observer.schedule(event_handler, WATCHED_FOLDER, recursive=False)
+    for folder in WATCHED_FOLDERS_LIST:
+        folder_name = os.path.basename(folder) or folder
+        event_handler = FolderMonitor(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, folder_name)
+        observer.schedule(event_handler, folder, recursive=False)
+        print(f"✓ {folder}")
+    
     observer.start()
     
-    # Notification de démarrage
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
         requests.post(url, data={
             'chat_id': TELEGRAM_CHAT_ID,
-            'text': (
-                f'🚀 <b>Surveillance active</b>\n\n'
-                f'📁 {WATCHED_FOLDER}\n'
-                f'✅ Détection fichiers ET dossiers'
-            ),
+            'text': f'🚀 <b>Surveillance active</b>\n\n📁 {len(WATCHED_FOLDERS_LIST)} dossier(s) surveillé(s)',
             'parse_mode': 'HTML'
-        }, timeout=5)
+        })
     except:
         pass
     
@@ -221,15 +224,6 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
-        try:
-            requests.post(url, data={
-                'chat_id': TELEGRAM_CHAT_ID,
-                'text': '🛑 <b>Surveillance arrêtée</b>',
-                'parse_mode': 'HTML'
-            }, timeout=5)
-        except:
-            pass
-    
     observer.join()
 
 if __name__ == "__main__":
@@ -245,7 +239,7 @@ chmod +x "$INSTALL_DIR/monitor.py"
 echo "⚙️  Configuration du service systemd..."
 cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOFSERVICE
 [Unit]
-Description=Surveillance de dossier avec notifications Telegram (Fichiers & Dossiers)
+Description=Surveillance multi-dossiers avec Telegram
 After=network-online.target
 Wants=network-online.target
 
@@ -256,7 +250,7 @@ WorkingDirectory=$INSTALL_DIR
 Environment="PATH=$INSTALL_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="TELEGRAM_BOT_TOKEN=$BOT_TOKEN"
 Environment="TELEGRAM_CHAT_ID=$CHAT_ID"
-Environment="WATCHED_FOLDER=$WATCHED_DIR"
+Environment="WATCHED_FOLDERS=$WATCHED_FOLDERS"
 ExecStart=$INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/monitor.py
 Restart=always
 RestartSec=10
@@ -276,10 +270,6 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
 
-# ============================================================================
-# VÉRIFICATION ET AFFICHAGE DU RÉSULTAT
-# ============================================================================
-
 sleep 3
 if systemctl is-active --quiet "$SERVICE_NAME"; then
     echo
@@ -289,41 +279,24 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
     echo
     echo "📊 Informations:"
     echo "   • Service: $SERVICE_NAME"
-    echo "   • Dossier surveillé: $WATCHED_DIR"
-    echo "   • Installation: $INSTALL_DIR"
-    echo "   • Mode: Fichiers ET Dossiers ✅"
+    echo "   • Dossiers surveillés: ${#FOLDERS[@]}"
+    for i in "${!FOLDERS[@]}"; do
+        echo "     $((i+1)). ${FOLDERS[$i]}"
+    done
     echo
     echo "📝 Commandes utiles:"
-    echo "   • Statut:      systemctl status $SERVICE_NAME"
-    echo "   • Logs:        journalctl -u $SERVICE_NAME -f"
-    echo "   • Arrêt:       systemctl stop $SERVICE_NAME"
-    echo "   • Redémarrage: systemctl restart $SERVICE_NAME"
+    echo "   • Statut:  systemctl status $SERVICE_NAME"
+    echo "   • Logs:    journalctl -u $SERVICE_NAME -f"
+    echo "   • Arrêt:   systemctl stop $SERVICE_NAME"
     echo
-    echo "🧪 Test rapide:"
-    echo "   # Créer un fichier test"
-    echo "   touch $WATCHED_DIR/test_fichier.txt"
+    echo "🧪 Tester:"
+    echo "   touch ${FOLDERS[0]}/test.txt"
+    echo "   mkdir ${FOLDERS[0]}/test_dir"
     echo
-    echo "   # Créer un dossier test"
-    echo "   mkdir $WATCHED_DIR/test_dossier"
-    echo
-    echo "💬 Vous devriez recevoir 2 notifications sur Telegram :"
-    echo "   📁 Une pour le fichier"
-    echo "   📂 Une pour le dossier"
-    echo
-    echo "📱 Vérifiez votre Telegram pour la notification de démarrage !"
+    echo "💬 Vérifiez Telegram pour la notification de démarrage !"
     echo "======================================================================"
-    echo
 else
-    echo
-    echo "======================================================================"
-    echo "                      ❌ ERREUR D'INSTALLATION"
-    echo "======================================================================"
-    echo
-    echo "Le service n'a pas démarré correctement."
-    echo
-    echo "🔍 Vérifiez les logs:"
-    echo "   journalctl -u $SERVICE_NAME -n 50"
-    echo
-    echo "======================================================================"
+    echo "❌ Erreur: Le service n'a pas démarré"
+    journalctl -u $SERVICE_NAME -n 20
     exit 1
 fi
