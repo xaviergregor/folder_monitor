@@ -269,7 +269,6 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 
 ## 📞 Support
 
-- 📧 Email : support@xgr-solutions.fr
 - 🐛 Issues : [GitHub Issues](https://github.com/xaviergregor/folder_monitor/issues)
 
 ---
