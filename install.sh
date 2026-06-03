@@ -161,14 +161,24 @@ class FolderMonitor(FileSystemEventHandler):
         except Exception as e:
             print(f"✗ Erreur: {e}")
     
-    def should_notify(self, item_path):
+    def should_notify(self, item_path, debounce=2):
         current_time = time.time()
         last_time = self.last_notification_time.get(item_path, 0)
-        if current_time - last_time > 2:
+        if current_time - last_time > debounce:
             self.last_notification_time[item_path] = current_time
             return True
         return False
-    
+
+    def _format_size(self, path):
+        try:
+            size_bytes = os.path.getsize(path)
+            for unit in ['o', 'Ko', 'Mo', 'Go']:
+                if size_bytes < 1024.0:
+                    return f"{size_bytes:.2f} {unit}"
+                size_bytes /= 1024.0
+        except OSError:
+            return "inconnu"
+
     def on_created(self, event):
         item_path = event.src_path
         if not self.should_notify(item_path):
@@ -183,18 +193,48 @@ class FolderMonitor(FileSystemEventHandler):
         
         if event.is_directory:
             message = f"📂 <b>Nouveau dossier</b>\n\n📁 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n🕒 {timestamp}"
-            print(f"[{timestamp}] 📂 DOSSIER: {item_name} (dans {folder_label})")
+            print(f"[{timestamp}] 📂 CRÉÉ: {item_name} (dans {folder_label})")
         else:
-            file_size = os.path.getsize(item_path)
-            size_bytes = file_size
-            for unit in ['o', 'Ko', 'Mo', 'Go']:
-                if size_bytes < 1024.0:
-                    size_str = f"{size_bytes:.2f} {unit}"
-                    break
-                size_bytes /= 1024.0
+            size_str = self._format_size(item_path)
             message = f"📁 <b>Nouveau fichier</b>\n\n📄 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n💾 {size_str}\n🕒 {timestamp}"
-            print(f"[{timestamp}] 📄 FICHIER: {item_name} (dans {folder_label})")
+            print(f"[{timestamp}] 📄 CRÉÉ: {item_name} (dans {folder_label})")
         
+        self.send_telegram_notification(message)
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        item_path = event.src_path
+        if not self.should_notify(item_path, debounce=5):
+            return
+        if not os.path.exists(item_path):
+            return
+
+        item_name = os.path.basename(item_path)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        folder_label = self.folder_name if self.folder_name else os.path.dirname(item_path)
+        size_str = self._format_size(item_path)
+
+        message = f"✏️ <b>Fichier modifié</b>\n\n📄 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n💾 {size_str}\n🕒 {timestamp}"
+        print(f"[{timestamp}] ✏️  MODIFIÉ: {item_name} (dans {folder_label})")
+        self.send_telegram_notification(message)
+
+    def on_deleted(self, event):
+        item_path = event.src_path
+        if not self.should_notify(item_path):
+            return
+
+        item_name = os.path.basename(item_path)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        folder_label = self.folder_name if self.folder_name else os.path.dirname(item_path)
+
+        if event.is_directory:
+            message = f"🗑️ <b>Dossier supprimé</b>\n\n📁 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n🕒 {timestamp}"
+            print(f"[{timestamp}] 🗑️  SUPPRIMÉ (dossier): {item_name} (dans {folder_label})")
+        else:
+            message = f"🗑️ <b>Fichier supprimé</b>\n\n📄 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n🕒 {timestamp}"
+            print(f"[{timestamp}] 🗑️  SUPPRIMÉ: {item_name} (dans {folder_label})")
+
         self.send_telegram_notification(message)
 
 def main():

@@ -8,7 +8,7 @@ Script Python de surveillance de dossiers en temps réel avec notifications Tele
 
 ## ✨ Fonctionnalités
 
-- 🔍 **Surveillance en temps réel** — Détection instantanée des nouveaux fichiers
+- 🔍 **Surveillance en temps réel** — Détection instantanée des nouveaux fichiers, modifications et suppressions
 - 📱 **Notifications Telegram** — Alertes immédiates avec détails du fichier
 - 🚀 **Service systemd** — Démarrage automatique au boot
 - 💾 **Anti-doublon** — Système de debouncing pour éviter les notifications multiples
@@ -112,6 +112,7 @@ Supprime le service systemd, son fichier de configuration et le répertoire `/op
 
 ## 📱 Format des notifications
 
+**Nouveau fichier**
 ```
 📁 Nouveau fichier
 
@@ -121,6 +122,26 @@ Supprime le service systemd, son fichier de configuration et le répertoire `/op
 🕒 2025-11-15 14:30:25
 ```
 
+**Fichier modifié**
+```
+✏️ Fichier modifié
+
+📄 document.pdf
+📍 Dans: uploads
+💾 2.46 Mo
+🕒 2025-11-15 14:35:10
+```
+
+**Fichier ou dossier supprimé**
+```
+🗑️ Fichier supprimé
+
+📄 document.pdf
+📍 Dans: uploads
+🕒 2025-11-15 14:40:00
+```
+
+**Nouveau dossier**
 ```
 📂 Nouveau dossier
 
@@ -269,6 +290,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 
 ## 📞 Support
 
+- 📧 Email : support@xgr-solutions.fr
 - 🐛 Issues : [GitHub Issues](https://github.com/xaviergregor/folder_monitor/issues)
 
 ---
