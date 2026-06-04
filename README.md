@@ -59,11 +59,6 @@ Cherchez votre bot sur Telegram et cliquez sur **Démarrer**.
 
 Après installation, utilisez `manage.sh` pour modifier la liste des dossiers **sans réinstaller**.
 
-```bash
-wget https://raw.githubusercontent.com/xaviergregor/folder_monitor/main/manage.sh
-chmod +x manage.sh
-```
-
 ### Lister les dossiers surveillés
 
 ```bash
