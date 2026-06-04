@@ -55,6 +55,20 @@ set_folders() {
     sed -i "s|^Environment=\"WATCHED_FOLDERS=.*\"|Environment=\"WATCHED_FOLDERS=$new_value\"|" "$SERVICE_FILE"
 }
 
+get_image_preview() {
+    grep '^Environment="IMAGE_PREVIEW=' "$SERVICE_FILE"         | sed 's/Environment="IMAGE_PREVIEW=//;s/"$//'
+}
+
+set_image_preview() {
+    local val="$1"
+    if grep -q '^Environment="IMAGE_PREVIEW=' "$SERVICE_FILE"; then
+        sed -i "s|^Environment=\"IMAGE_PREVIEW=.*\"|Environment=\"IMAGE_PREVIEW=$val\"|" "$SERVICE_FILE"
+    else
+        # Ligne absente (ancienne install) : on l'ajoute après WATCHED_FOLDERS
+        sed -i '/^Environment="WATCHED_FOLDERS=/a Environment="IMAGE_PREVIEW='"$val"'"' "$SERVICE_FILE"
+    fi
+}
+
 folders_to_array() {
     local folders_str="$1"
     IFS=',' read -ra arr <<< "$folders_str"
@@ -94,6 +108,13 @@ cmd_list() {
         echo -e "  Service : ${GREEN}● actif${NC}"
     else
         echo -e "  Service : ${RED}● $status${NC}"
+    fi
+    local preview
+    preview=$(get_image_preview)
+    if [[ "$preview" == "true" ]]; then
+        echo -e "  Aperçu image : ${GREEN}● activé${NC}"
+    else
+        echo -e "  Aperçu image : ${YELLOW}● désactivé${NC}"
     fi
     echo
 }
@@ -227,6 +248,44 @@ cmd_status() {
     cmd_list
 }
 
+cmd_image_preview() {
+    local action="$1"
+
+    case "$action" in
+        on|true|1)
+            set_image_preview "true"
+            systemctl daemon-reload
+            systemctl restart "$SERVICE_NAME"
+            echo
+            echo -e "${GREEN}✅ Aperçu image activé.${NC}"
+            ;;
+        off|false|0)
+            set_image_preview "false"
+            systemctl daemon-reload
+            systemctl restart "$SERVICE_NAME"
+            echo
+            echo -e "${YELLOW}✅ Aperçu image désactivé.${NC}"
+            ;;
+        "")
+            local current
+            current=$(get_image_preview)
+            echo
+            if [[ "$current" == "true" ]]; then
+                echo -e "  Aperçu image : ${GREEN}● activé${NC}"
+            else
+                echo -e "  Aperçu image : ${YELLOW}● désactivé${NC}"
+            fi
+            echo
+            echo -e "  Usage : ${CYAN}sudo ./manage.sh image-preview on|off${NC}"
+            echo
+            ;;
+        *)
+            echo -e "${RED}❌ Valeur invalide. Usage : sudo ./manage.sh image-preview on|off${NC}"
+            exit 1
+            ;;
+    esac
+}
+
 cmd_uninstall() {
     echo
     echo -e "${BOLD}${RED}⚠️  Désinstallation de folder-monitor${NC}"
@@ -272,7 +331,8 @@ cmd_help() {
     echo -e "  ${CYAN}add /chemin${NC}       Ajouter un dossier à la surveillance"
     echo -e "  ${CYAN}remove /chemin${NC}    Retirer un dossier de la surveillance"
     echo -e "  ${CYAN}status${NC}            Voir le statut du service + liste des dossiers"
-    echo -e "  ${CYAN}uninstall${NC}         Supprimer complètement le service et les fichiers"
+    echo -e "  ${CYAN}uninstall${NC}         Supprimer complètement le service et les fichiers
+  ${CYAN}image-preview on|off${NC}  Activer ou désactiver l'aperçu automatique des images"
     echo
     echo -e "Exemples :"
     echo -e "  sudo ./manage.sh add /var/www/uploads"
@@ -297,6 +357,7 @@ case "${1:-}" in
     remove)         cmd_remove "$2" ;;
     status)         cmd_status ;;
     uninstall)      cmd_uninstall ;;
+    image-preview)  cmd_image_preview "$2" ;;
     help|--help|-h) cmd_help ;;
     *)
         echo -e "${RED}❌ Commande inconnue : ${1:-}${NC}"

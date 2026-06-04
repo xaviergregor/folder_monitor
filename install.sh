@@ -87,6 +87,21 @@ fi
 # Créer la liste des dossiers séparés par des virgules
 WATCHED_FOLDERS=$(IFS=,; echo "${FOLDERS[*]}")
 
+# ============================================================================
+# OPTION APERÇU IMAGE
+# ============================================================================
+
+echo ""
+read -p "📸 Activer l'aperçu automatique des images dans Telegram ? (y/n) [y] " IMAGE_PREVIEW_CHOICE
+IMAGE_PREVIEW_CHOICE=${IMAGE_PREVIEW_CHOICE:-y}
+if [[ "$IMAGE_PREVIEW_CHOICE" =~ ^[Yy]$ ]]; then
+    IMAGE_PREVIEW="true"
+    echo "   ✓ Aperçu image activé (jpg, jpeg, png, gif, webp, bmp)"
+else
+    IMAGE_PREVIEW="false"
+    echo "   ✓ Aperçu image désactivé"
+fi
+
 echo
 echo "📊 Récapitulatif:"
 echo "   • Bot Token: ${BOT_TOKEN:0:10}..."
@@ -133,16 +148,21 @@ echo "📄 Installation du script de surveillance multi-dossiers..."
 cat > "$INSTALL_DIR/monitor.py" << 'EOFSCRIPT'
 #!/usr/bin/env python3
 import os
+import io
 import time
 import requests
 from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+IMAGE_MAX_SIZE = 10 * 1024 * 1024  # 10 Mo
+
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 WATCHED_FOLDERS = os.getenv('WATCHED_FOLDERS', '')
 WATCHED_FOLDERS_LIST = [f.strip() for f in WATCHED_FOLDERS.split(',') if f.strip()]
+IMAGE_PREVIEW = os.getenv('IMAGE_PREVIEW', 'true').lower() == 'true'
 
 class FolderMonitor(FileSystemEventHandler):
     def __init__(self, bot_token, chat_id, folder_name=None):
@@ -159,7 +179,56 @@ class FolderMonitor(FileSystemEventHandler):
             if response.status_code == 200:
                 print(f"✓ Notification envoyée")
         except Exception as e:
-            print(f"✗ Erreur: {e}")
+            print(f"✗ Erreur notification: {e}")
+
+    def wait_for_file_ready(self, path, timeout=30, interval=0.5):
+        """Attend que le fichier soit complètement écrit (taille stable)."""
+        previous_size = -1
+        elapsed = 0
+        while elapsed < timeout:
+            try:
+                current_size = os.path.getsize(path)
+            except OSError:
+                return False
+            if current_size == previous_size and current_size > 0:
+                return True
+            previous_size = current_size
+            time.sleep(interval)
+            elapsed += interval
+        print(f"  ↳ Timeout atteint ({timeout}s), fichier peut-être incomplet")
+        return True  # On tente quand même
+
+    def send_telegram_photo(self, image_path, caption):
+        """Envoie une image via sendPhoto avec légende. Fallback texte si > 10 Mo."""
+        try:
+            self.wait_for_file_ready(image_path)
+
+            file_size = os.path.getsize(image_path)
+            if file_size > IMAGE_MAX_SIZE:
+                print(f"  ↳ Image trop lourde ({file_size/1024/1024:.1f} Mo), envoi texte uniquement")
+                self.send_telegram_notification(caption)
+                return
+            if file_size == 0:
+                print(f"  ↳ Fichier vide, envoi texte uniquement")
+                self.send_telegram_notification(caption)
+                return
+
+            photo_url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
+            with open(image_path, 'rb') as img_file:
+                response = requests.post(
+                    photo_url,
+                    data={'chat_id': self.chat_id, 'caption': caption, 'parse_mode': 'HTML'},
+                    files={'photo': img_file},
+                    timeout=30
+                )
+            if response.status_code == 200:
+                print(f"✓ Photo envoyée")
+            else:
+                print(f"✗ Erreur sendPhoto ({response.status_code}), fallback texte")
+                self.send_telegram_notification(caption)
+        except Exception as e:
+            print(f"✗ Erreur photo: {e}")
+            self.send_telegram_notification(caption)
     
     def should_notify(self, item_path, debounce=2):
         current_time = time.time()
@@ -196,9 +265,17 @@ class FolderMonitor(FileSystemEventHandler):
             print(f"[{timestamp}] 📂 CRÉÉ: {item_name} (dans {folder_label})")
         else:
             size_str = self._format_size(item_path)
+            ext = os.path.splitext(item_name)[1].lower()
             message = f"📁 <b>Nouveau fichier</b>\n\n📄 <code>{item_name}</code>\n📍 Dans: <code>{folder_label}</code>\n💾 {size_str}\n🕒 {timestamp}"
             print(f"[{timestamp}] 📄 CRÉÉ: {item_name} (dans {folder_label})")
-        
+
+            if ext in IMAGE_EXTENSIONS and IMAGE_PREVIEW:
+                print(f"  ↳ Image détectée, envoi de l'aperçu...")
+                self.send_telegram_photo(item_path, message)
+            else:
+                self.send_telegram_notification(message)
+            return
+
         self.send_telegram_notification(message)
 
     def on_modified(self, event):
@@ -291,6 +368,7 @@ Environment="PATH=$INSTALL_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin
 Environment="TELEGRAM_BOT_TOKEN=$BOT_TOKEN"
 Environment="TELEGRAM_CHAT_ID=$CHAT_ID"
 Environment="WATCHED_FOLDERS=$WATCHED_FOLDERS"
+Environment="IMAGE_PREVIEW=$IMAGE_PREVIEW"
 ExecStart=$INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/monitor.py
 Restart=always
 RestartSec=10

@@ -14,6 +14,7 @@ Script Python de surveillance de dossiers en temps réel avec notifications Tele
 - 💾 **Anti-doublon** — Système de debouncing pour éviter les notifications multiples
 - 🛡️ **Robuste** — Gestion des erreurs et reconnexion automatique
 - 📂 **Multi-dossiers** — Surveillance simultanée de plusieurs répertoires
+- 🖼️ **Aperçu image** — Envoi automatique de l'image en aperçu Telegram lors d'une création (jpg, jpeg, png, gif, webp, bmp). Fallback texte si > 10 Mo
 - ⚙️ **Gestion dynamique** — Ajout/suppression de dossiers sans réinstallation
 
 ## 📋 Prérequis
@@ -108,6 +109,18 @@ sudo ./manage.sh uninstall
 
 Supprime le service systemd, son fichier de configuration et le répertoire `/opt/folder-monitor`. Une confirmation est demandée avant toute suppression.
 
+### Activer / désactiver l'aperçu image
+
+L'aperçu image est activé par défaut à l'installation. Pour le basculer sans réinstaller :
+
+```bash
+sudo ./manage.sh image-preview on    # Activer
+sudo ./manage.sh image-preview off   # Désactiver
+sudo ./manage.sh image-preview       # Voir l'état actuel
+```
+
+L'état est également visible dans `sudo ./manage.sh list`.
+
 > **Note :** Toutes les commandes `manage.sh` nécessitent les droits root (`sudo`).
 
 ## 📱 Format des notifications
@@ -139,6 +152,17 @@ Supprime le service systemd, son fichier de configuration et le répertoire `/op
 📄 document.pdf
 📍 Dans: uploads
 🕒 2025-11-15 14:40:00
+```
+
+**Nouveau fichier image** *(aperçu envoyé directement dans Telegram)*
+```
+📁 Nouveau fichier
+
+📄 photo.jpg
+📍 Dans: uploads
+💾 1.20 Mo
+🕒 2025-11-15 14:32:00
+[image affichée dans Telegram]
 ```
 
 **Nouveau dossier**
