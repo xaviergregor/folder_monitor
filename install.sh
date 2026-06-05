@@ -199,20 +199,21 @@ class FolderMonitor(FileSystemEventHandler):
         return True  # On tente quand même
 
     def send_telegram_photo(self, image_path, caption):
-        """Envoie une image via sendPhoto avec légende. Fallback texte si > 10 Mo."""
+        """Envoie une image via sendPhoto, fallback sendDocument si refusé, fallback texte si > 10 Mo."""
         try:
             self.wait_for_file_ready(image_path)
 
             file_size = os.path.getsize(image_path)
-            if file_size > IMAGE_MAX_SIZE:
-                print(f"  ↳ Image trop lourde ({file_size/1024/1024:.1f} Mo), envoi texte uniquement")
-                self.send_telegram_notification(caption)
-                return
             if file_size == 0:
                 print(f"  ↳ Fichier vide, envoi texte uniquement")
                 self.send_telegram_notification(caption)
                 return
+            if file_size > IMAGE_MAX_SIZE:
+                print(f"  ↳ Image trop lourde ({file_size/1024/1024:.1f} Mo), envoi texte uniquement")
+                self.send_telegram_notification(caption)
+                return
 
+            # Tentative sendPhoto (limite Telegram : < 5 Mo et < 10 000px)
             photo_url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
             with open(image_path, 'rb') as img_file:
                 response = requests.post(
@@ -221,11 +222,27 @@ class FolderMonitor(FileSystemEventHandler):
                     files={'photo': img_file},
                     timeout=30
                 )
+
             if response.status_code == 200:
-                print(f"✓ Photo envoyée")
+                print(f"✓ Photo envoyée (sendPhoto)")
+                return
+
+            # Fallback sendDocument (pas de limite de résolution, jusqu'à 50 Mo)
+            print(f"  ↳ sendPhoto refusé ({response.status_code}), tentative sendDocument...")
+            doc_url = f"https://api.telegram.org/bot{self.bot_token}/sendDocument"
+            with open(image_path, 'rb') as img_file:
+                response = requests.post(
+                    doc_url,
+                    data={'chat_id': self.chat_id, 'caption': caption, 'parse_mode': 'HTML'},
+                    files={'document': img_file},
+                    timeout=30
+                )
+            if response.status_code == 200:
+                print(f"✓ Photo envoyée (sendDocument)")
             else:
-                print(f"✗ Erreur sendPhoto ({response.status_code}), fallback texte")
+                print(f"✗ Erreur sendDocument ({response.status_code}), fallback texte")
                 self.send_telegram_notification(caption)
+
         except Exception as e:
             print(f"✗ Erreur photo: {e}")
             self.send_telegram_notification(caption)
