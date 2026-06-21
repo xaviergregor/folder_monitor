@@ -2,7 +2,7 @@
 #
 # Gestion des dossiers surveillés - folder-monitor
 #
-# Auteur: Xavier - XGR Solutions
+# Auteur: Xavier Gregor
 # Version: 1.0
 #
 # Usage:
