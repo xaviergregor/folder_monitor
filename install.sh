@@ -2,9 +2,9 @@
 #
 # Installation - Surveillance multi-dossiers avec Telegram
 #
-# Auteur: Xavier - XGR Solutions
+# Auteur: Xavier Gregor
 # Version: 3.0 - Multi-dossiers
-#
+# Avec l'aide de Claude Code
 
 set -e
 
